@@ -157,6 +157,9 @@ class CSpaceConfig:
     #: Names of the joints.
     joint_names: List[str]
 
+    # Number of gripper joints
+    num_gripper_joint: Optional[int]
+
     #: Retract configuration for the robot. This is the configuration used to bias graph search
     #: and also regularize inverse kinematics. This configuration is also used to initialize
     #: the robot during warmup phase of an optimizer. Set this to a collision-free configuration

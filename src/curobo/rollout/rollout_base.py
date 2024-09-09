@@ -477,7 +477,8 @@ class RolloutBase:
     def __call__(self, act: T_BHDOF_float) -> Trajectory:
         return self.rollout_fn(act)
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def action_bounds(self):
         return self.tensor_args.to_device(
             torch.stack([self.action_bound_lows, self.action_bound_highs])
@@ -499,19 +500,23 @@ class RolloutBase:
     def reset(self):
         return True
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def d_action(self) -> int:
         raise NotImplementedError
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def action_bound_lows(self):
         return 1
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def action_bound_highs(self):
         return 1
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def dt(self):
         return 0.1
 
@@ -579,7 +584,8 @@ class RolloutBase:
     ):
         pass
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def cspace_config(self) -> CSpaceConfig:
         pass
 

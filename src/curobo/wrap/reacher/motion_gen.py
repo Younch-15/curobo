@@ -904,7 +904,7 @@ class MotionGenPlanConfig:
     max_attempts: int = 60
 
     #: Maximum time in seconds allowed to solve the motion generation problem.
-    timeout: float = 10.0
+    timeout: float = 30.0
 
     #: Number of failed attempts at which to fallback to a graph planner for obtaining trajectory
     #: seeds.
@@ -946,7 +946,7 @@ class MotionGenPlanConfig:
 
     #: use start config as regularization for IK instead of
     #: :meth:`curobo.types.robot.RobotConfig.kinematics.kinematics_config.retract_config`
-    use_start_state_as_retract: bool = True
+    use_start_state_as_retract: bool = False
 
     #: Use a custom pose cost metric for trajectory optimization. This is useful for adding
     #: additional constraints to motion generation, such as constraining the end-effector's motion
@@ -1503,7 +1503,7 @@ class MotionGen(MotionGenConfig):
         start_state: JointState,
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
-        link_poses: List[Pose] = None,
+        link_poses: Optional[Dict[str, Pose]] = None,
     ) -> MotionGenResult:
         """Plan a single motion to reach a goal pose from a start joint state.
 
@@ -2939,7 +2939,7 @@ class MotionGen(MotionGenConfig):
         start_state: JointState,
         goal_pose: Pose,
         plan_config: MotionGenPlanConfig = MotionGenPlanConfig(),
-        link_poses: List[Pose] = None,
+        link_poses: Optional[Dict[str, Pose]] = None,
     ):
         """Call many planning attempts for a given reacher solve state.
 
@@ -3253,8 +3253,8 @@ class MotionGen(MotionGenConfig):
                 "Goal position should be of shape [1, n_goalset, -1], current shape: "
                 + str(goal_pose.shape)
             )
-        # plan ik:
 
+        # plan ik:
         ik_result = self._solve_ik_from_solve_state(
             goal_pose,
             solve_state,
@@ -3281,7 +3281,6 @@ class MotionGen(MotionGenConfig):
             result.status = MotionGenStatus.IK_FAIL
             return result
 
-        # do graph search:
         with profiler.record_function("motion_gen/post_ik"):
             ik_out_seeds = solve_state.num_trajopt_seeds
             if plan_config.enable_graph:
@@ -3310,7 +3309,6 @@ class MotionGen(MotionGenConfig):
                 log_info("MG: GP Success")
                 result.graph_plan = graph_result.interpolated_plan
                 result.interpolated_plan = graph_result.interpolated_plan
-
                 result.used_graph = True
                 if plan_config.enable_opt:
                     trajopt_seed = (
@@ -3370,7 +3368,6 @@ class MotionGen(MotionGenConfig):
                     return result
 
         # do trajopt::
-
         if plan_config.enable_opt:
             with profiler.record_function("motion_gen/setup_trajopt_seeds"):
                 self._trajopt_goal_config[:, :ik_success] = goal_config
@@ -3479,7 +3476,6 @@ class MotionGen(MotionGenConfig):
 
                     for k in range(plan_config.finetune_attempts):
                         if self.optimize_dt:
-
                             scaled_dt = torch.clamp(
                                 opt_dt
                                 * plan_config.finetune_dt_scale
@@ -3501,32 +3497,31 @@ class MotionGen(MotionGenConfig):
                             break
                         seed_traj = traj_result.optimized_seeds.detach().clone()
                         newton_iters = 4
-
                     traj_result.solve_time = finetune_time
-
                 result.finetune_time = traj_result.solve_time
-
                 traj_result.solve_time = og_solve_time
                 if self.store_debug_in_result:
                     result.debug_info["finetune_trajopt_result"] = traj_result
             elif plan_config.enable_finetune_trajopt:
                 traj_result.success = traj_result.success[0:1]
-                # if torch.count_nonzero(result.success) == 0:
-                result.status = MotionGenStatus.TRAJOPT_FAIL
+
             result.solve_time += traj_result.solve_time + result.finetune_time
             result.trajopt_time = traj_result.solve_time
             result.trajopt_attempts = 1
             result.success = traj_result.success
 
-            if plan_config.enable_finetune_trajopt and torch.count_nonzero(result.success) == 0:
-
-                result.status = MotionGenStatus.FINETUNE_TRAJOPT_FAIL
-                if (
-                    traj_result.debug_info is not None
-                    and "dt_exception" in traj_result.debug_info
-                    and traj_result.debug_info["dt_exception"]
-                ):
-                    result.status = MotionGenStatus.DT_EXCEPTION
+            if torch.count_nonzero(result.success) == 0:
+                if plan_config.enable_finetune_trajopt and torch.count_nonzero(traj_result.success) > 0:
+                    result.status = MotionGenStatus.FINETUNE_TRAJOPT_FAIL
+                else:
+                    if (
+                        traj_result.debug_info is not None
+                        and "dt_exception" in traj_result.debug_info
+                        and traj_result.debug_info["dt_exception"]
+                    ):
+                        result.status = MotionGenStatus.DT_EXCEPTION
+                    else:
+                        result.status = MotionGenStatus.TRAJOPT_FAIL
 
             result.interpolated_plan = traj_result.interpolated_solution.trim_trajectory(
                 0, traj_result.path_buffer_last_tstep[0]
